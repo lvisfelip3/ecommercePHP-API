@@ -17,6 +17,12 @@ switch ($method) {
             handlePostRequest($pdo);
         }
         break;
+    case 'DELETE': 
+        $auth = validateToken();
+        if ($auth) {
+            handleDeleteRequest($pdo);
+        }
+        break;
     default:
         http_response_code(405);
         echo json_encode(['message' => 'Method Not Allowed']);
@@ -25,12 +31,36 @@ switch ($method) {
 
 function handleGetRequest($pdo)
 {
-    getUserOrdersById($pdo, intval($_GET['id']));
+    if(isset($_GET['action']) && $_GET['action'] === 'getAddress'){
+        getAddressByClientId($pdo, intval($_GET['id']));
+    } else {
+        getUserOrdersById($pdo, intval($_GET['id']));
+    }
 }
 
 function handlePostRequest($pdo)
 {
-    setUserPersonalData($pdo);
+    if(isset($_GET['action']) && $_GET['action'] === 'createAddress') {
+        createAddressById($pdo, intval($_GET['id']));
+    } else {
+        setUserPersonalData($pdo);
+    }
+}
+
+function handleDeleteRequest($pdo)
+{
+    try {
+        $query = "UPDATE direcciones SET estado = 2 WHERE id = :id";
+        $stmt = $pdo->prepare($query);
+        $stmt->bindParam(':id', $_GET['id']);
+        $stmt->execute();
+        http_response_code(200);
+        echo json_encode(['message' => 'Dirección eliminada con éxito']);
+    } catch (Exception $e) {
+        logError("Error al eliminar usuario: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['message' => 'Error interno']);
+    }
 }
 
 function getUserOrdersById($pdo, $id)
@@ -111,6 +141,26 @@ function products($pdo, $id, $venta_id)
     return $products;
 }
 
+function getAddressByClientId($pdo, $id) {
+    $query = "
+    SELECT d.id, 
+        d.direccion, 
+        comunas.nombre AS comuna, 
+        ciudades.nombre AS ciudad, 
+        d.depto 
+    FROM direcciones d
+    INNER JOIN clientes c ON c.id = d.cliente_id
+    INNER JOIN comunas ON d.comuna_id = comunas.id
+    INNER JOIN ciudades ON d.ciudad_id = ciudades.id
+    WHERE c.usuario_id = :id AND d.estado = 1";
+    $stmt = $pdo->prepare($query);
+    $stmt->bindParam(':id', $id);
+    $stmt->execute();
+    $address = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    http_response_code(200);
+    echo json_encode($address);
+}
+
 function setUserPersonalData($pdo) {
     $data = json_decode(file_get_contents('php://input'), true);
     $query = "UPDATE clientes SET nombre = :nombre, apellido = :apellido, telefono = :telefono, rut = :rut WHERE usuario_id = :id";
@@ -124,16 +174,95 @@ function setUserPersonalData($pdo) {
     if ($stmt->execute()) {
         http_response_code(200);
         echo json_encode([
-            'success' => true,
+            'status' => true,
             'message' => 'Datos actualizados correctamente'
         ]);
+        exit;
     } else {
         http_response_code(500);
         echo json_encode([
-            'success' => false,
+            'status' => false,
             'message' => 'Error interno'
         ]);
+        exit;
     }
+}
+
+function createAddressById($pdo, $id) {
+    try {
+        $data = json_decode(file_get_contents('php://input'), true);
+
+        $pdo->beginTransaction();
+
+        $client = getClientId($pdo, $id);
+
+        $moreThan4 = checkUserAddress($pdo, $client);
+
+        if($moreThan4) {
+            http_response_code(200);
+            echo json_encode([
+                'status' => false,
+                'message' => 'Ya tienes 4 direcciones'
+            ]);
+            exit;
+        }
+
+        createAddressd($pdo, $client, $data);
+
+        $pdo->commit();
+
+        http_response_code(200);
+        echo json_encode([
+            'status' => true,
+            'message' => 'Dirección creada con exito'
+        ]);
+        
+    } catch (Exception $e) {
+        http_response_code(500);
+        $pdo->rollBack();
+        throw $e;
+    }
+}
+
+function getClientId($pdo,$id) {
+    
+    $query = "SELECT id FROM clientes WHERE usuario_id = :id";
+    $stmt = $pdo->prepare($query);
+    $stmt->bindParam(':id', $id);
+    $stmt->execute();
+    $client_id = $stmt->fetchColumn();
+
+    return $client_id;
+}
+
+function createAddressd($pdo, $client, $data) {
+    $depto = intval($data['depto']) ?? null;
+
+    $query = "INSERT INTO direcciones (cliente_id ,direccion, depto, comuna_id, ciudad_id, estado) VALUES (:cliente_id,:direccion, :depto, :comuna_id, :ciudad_id, 1)";
+    $stmt = $pdo->prepare($query);
+    $stmt->bindParam(':cliente_id', $client);
+    $stmt->bindParam(':direccion', $data['direccion']);
+    $stmt->bindParam(':depto', $depto);
+    $stmt->bindParam(':comuna_id', $data['comuna_id']);
+    $stmt->bindParam(':ciudad_id', $data['ciudad_id']);
+
+    $stmt->execute();
+}
+
+function checkUserAddress($pdo, $id_cliente) {
+    $query = "SELECT COUNT(id) FROM direcciones WHERE cliente_id = :id AND estado = 1";
+    $stmt = $pdo->prepare($query);
+    $stmt->bindParam(':id', $id_cliente);
+
+    $stmt->execute();
+
+    $userAddress = $stmt->fetchColumn();
+
+    if($userAddress > 4) {
+        return true;
+    }
+
+    return false;
 }
 
 function logError($message)
