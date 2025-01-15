@@ -214,7 +214,9 @@ class PaymentService {
             
             $clientId = $this->checkClient($orderData);
 
-            $addressId = $this->createAddress($clientId, $orderData);
+            $direccion_id = $orderData['direccion_id'] != 0 && isset($orderData['direccion_id']) ? $orderData['direccion_id'] : null;
+
+            $addressId = $this->createAddress($clientId, $orderData, $direccion_id);
             $totalAmount = $this->updateStock($orderData['products']);
             
             $saleId = $this->createSale($clientId, $addressId, $totalAmount, $saleRef);
@@ -440,8 +442,11 @@ class PaymentService {
         }
     }
     
-    private function createAddress($clientId, $data)
+    private function createAddress($clientId, $data, $addressId)
     {
+        if ($addressId) {
+            return $addressId;
+        }
         $query="INSERT INTO direcciones (cliente_id, direccion, comuna_id, ciudad_id, estado, depto)
                 VALUES (:client_id, :direccion, :comuna_id, :ciudad_id, 1, :depto)";
         $stmt = $this->pdo->prepare($query);

@@ -160,10 +160,12 @@ function addClientForPayment($pdo)
         $data = json_decode(file_get_contents("php://input"), true);
         validateData($data);
 
+        $direccion_id = $data['direccion_id'] != 0 && isset($data['direccion_id']) ? $data['direccion_id'] : null;
+
         $pdo->beginTransaction();
 
         $clientId = checkClient($pdo, $data);
-        $addressId = createAddress($pdo, $clientId, $data);
+        $addressId = createAddress($pdo, $clientId, $data, $direccion_id);
         $totalAmount = updateStock($pdo, $data['products']);
 
         $saleData = createSale($pdo, $clientId, $addressId, $totalAmount);
@@ -190,7 +192,7 @@ function addClientForPayment($pdo)
 
 function validateData($data)
 {
-    $requiredFields = ['nombre', 'apellido', 'rut', 'method', 'comuna', 'ciudad', 'direccion', 'products'];
+    $requiredFields = ['nombre', 'apellido', 'rut', 'method', 'products'];
     foreach ($requiredFields as $field) {
         if (empty($data[$field])) {
             throw new Exception("El campo $field es requerido.");
@@ -274,8 +276,11 @@ function createClient($pdo, $data)
     return $pdo->lastInsertId();
 }
 
-function createAddress($pdo, $clientId, $data)
-{
+function createAddress($pdo, $clientId, $data, $addressId)
+{   
+    if ($addressId) {
+        return $addressId;
+    }
     $query="INSERT INTO direcciones (cliente_id, direccion, comuna_id, ciudad_id, estado, depto)
             VALUES (:client_id, :direccion, :comuna_id, :ciudad_id, 1, :depto)";
     $stmt = $pdo->prepare($query);
