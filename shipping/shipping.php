@@ -52,7 +52,8 @@ function getShipping($pdo)
             comunas.nombre AS comuna,
             ciudades.nombre AS ciudad,
             v.referencia AS referencia,
-            e.estado AS estado_envio
+            e.estado AS estado_envio,
+            e.creado_en AS fecha
         FROM 
             ventas v
         INNER JOIN clientes c ON v.cliente_id = c.id
@@ -60,6 +61,7 @@ function getShipping($pdo)
         INNER JOIN direcciones d ON v.direccion_id = d.id
         INNER JOIN comunas ON d.comuna_id = comunas.id
         INNER JOIN ciudades ON d.ciudad_id = ciudades.id
+        ORDER BY e.creado_en DESC
         ";
         $stmt = $pdo->prepare($query);
         $stmt->execute();
@@ -70,6 +72,7 @@ function getShipping($pdo)
             $result[] = [
                 'id' => $venta['venta_id'],
                 'status' => $venta['estado_envio'],
+                'date' => $venta['fecha'],
                 'client' => [
                     'nombre' => $venta['cliente_nombre'],
                     'rut' => $venta['cliente_rut']
@@ -105,7 +108,8 @@ function getShippingByStatus($pdo, $status)
             comunas.nombre AS comuna,
             v.referencia AS referencia,
             ciudades.nombre AS ciudad,
-            e.estado AS estado_envio
+            e.estado AS estado_envio,
+            e.creado_en AS fecha
         FROM 
             ventas v
         INNER JOIN clientes c ON v.cliente_id = c.id
@@ -115,6 +119,7 @@ function getShippingByStatus($pdo, $status)
         INNER JOIN ciudades ON d.ciudad_id = ciudades.id
         WHERE 
             e.estado = :estado
+        ORDER BY e.creado_en DESC
         ";
         $stmt = $pdo->prepare($query);
         $stmt->bindParam(':estado', $status);
@@ -126,6 +131,7 @@ function getShippingByStatus($pdo, $status)
             $result[] = [
                 'id' => $venta['venta_id'],
                 'status' => $venta['estado_envio'],
+                'date' => $venta['fecha'],
                 'client' => [
                     'nombre' => $venta['cliente_nombre'],
                     'rut' => $venta['cliente_rut']

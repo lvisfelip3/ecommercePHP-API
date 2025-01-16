@@ -52,11 +52,13 @@ function getPayments($pdo)
             p.metodo_pago as metodo_pago,
             v.referencia AS venta_referencia,
             p.referencia AS referencia,
-            p.estado AS estado_pago
+            p.estado AS estado_pago,
+            p.creado_en AS fecha
         FROM 
             pagos p
         INNER JOIN ventas v ON p.venta_id = v.id
         INNER JOIN clientes c ON v.cliente_id = c.id
+        ORDER BY p.creado_en DESC
         ";
         $stmt = $pdo->prepare($query);
         $stmt->execute();
@@ -67,6 +69,7 @@ function getPayments($pdo)
             $result[] = [
                 'id' => $pay['pago_id'],
                 'status' => $pay['estado_pago'],
+                'date' => $pay['fecha'],
                 'client' => [
                     'nombre' => $pay['cliente_nombre'],
                     'rut' => $pay['cliente_rut']
@@ -100,13 +103,15 @@ function getPaymentsByStatus($pdo, $status)
             v.referencia AS venta_referencia,
             p.metodo_pago as metodo_pago,
             p.referencia AS referencia,
-            p.estado AS estado_pago
+            p.estado AS estado_pago,
+            p.creado_en AS fecha
         FROM 
             pagos p
         INNER JOIN ventas v ON p.venta_id = v.id
         INNER JOIN clientes c ON v.cliente_id = c.id
         WHERE 
             p.estado = :estado
+        ORDER BY p.creado_en DESC
         ";
         $stmt = $pdo->prepare($query);
         $stmt->bindParam(':estado', $status);
@@ -118,6 +123,7 @@ function getPaymentsByStatus($pdo, $status)
             $result[] = [
                 'id' => $pay['pago_id'],
                 'status' => $pay['estado_pago'],
+                'date' => $pay['fecha'],
                 'client' => [
                     'nombre' => $pay['cliente_nombre'],
                     'rut' => $pay['cliente_rut']
