@@ -44,21 +44,30 @@ function handleGetRequest($pdo)
 {
     if (isset($_GET['id']) && !empty($_GET['id'])) {
         getProductById($pdo, intval($_GET['id']));
-
     } elseif (isset($_GET['name']) && !empty($_GET['name'])) {
         getProductsByName($pdo, $_GET['name']);
+    }
 
-    } elseif (isset($_GET['search']) && !empty($_GET['search'])) {
-        getProductsBySearch($pdo, $_GET['search']);
+    $limit = isset($_GET['limit']) ? intval($_GET['limit']) : 10;
+    $page = isset($_GET['page']) ? intval($_GET['page']) : 1;
+
+    if ($limit <= 0) $limit = 10;
+    if ($page <= 0) $page = 1;
+
+    $offset = ($page - 1) * $limit;
+    $totalProducts = getTotalProducts($pdo);
+
+    if (isset($_GET['search']) && !empty($_GET['search'])) {
+        getProductsBySearch($pdo, $_GET['search'], $limit, $offset, $page, $totalProducts);
 
     } elseif (isset($_GET['category_id']) && !empty($_GET['category_id'])) {
-        getProductsByCategory($pdo, intval($_GET['category_id']));
+        getProductsByCategory($pdo, intval($_GET['category_id']), $limit, $offset, $page, $totalProducts);
 
     } elseif (isset($_GET['maxPrice']) && !empty($_GET['maxPrice'])) {
-        getProductsByMaxPrice($pdo, intval($_GET['maxPrice']));
+        getProductsByMaxPrice($pdo, intval($_GET['maxPrice']), $limit, $offset, $page, $totalProducts);
 
     } else {
-        getProducts($pdo);
+        getProducts($pdo, $limit, $offset, $page, $totalProducts);
     }
 }
 
@@ -86,14 +95,24 @@ function handleDeleteRequest($pdo)
     }
 }
 
-function getProducts($pdo)
+function getProducts($pdo, $limit, $offset, $page, $totalProducts)
 {
     try {
-        $query = "SELECT * FROM productos WHERE estado = 1 ORDER BY stock DESC";
+        $query = "SELECT * FROM productos WHERE estado = 1 ORDER BY stock DESC LIMIT :limit OFFSET :offset";
         $stmt = $pdo->prepare($query);
+        $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
         $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        echo json_encode($products);
+        echo json_encode([
+            'products' => $products,
+            'pagination' => [
+                'total' => $totalProducts,
+                'limit' => $limit,
+                'page' => $page,
+                'pages' => ceil($totalProducts / $limit)
+            ]
+        ]);
     } catch (Exception $e) {
         logError("Error al obtener productos: " . $e->getMessage());
         http_response_code(500);
@@ -117,15 +136,43 @@ function getProductsByName($pdo, $name)
     }
 }
 
-function getProductsByCategory($pdo, $categoryId)
+function getTotalProducts($pdo) {
+    try {
+        $query = "SELECT COUNT(id) FROM productos WHERE estado = 1";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute();
+        $total = $stmt->fetchColumn();
+        return intval($total);
+    } catch (Exception $e) {
+        logError("Error al obtener productos: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['message' => 'Error interno']);
+    }
+}
+
+function getProductsByCategory($pdo, $categoryId, $limit, $offset, $page, $totalProducts)
 {
     try {
-        $query = "SELECT * FROM productos WHERE categoria_id = :categoryId AND estado = 1";
+        $query = "SELECT * 
+                    FROM productos 
+                    WHERE categoria_id = :categoryId AND estado = 1 
+                    ORDER BY stock DESC 
+                    LIMIT :limit OFFSET :offset";
         $stmt = $pdo->prepare($query);
         $stmt->bindParam(':categoryId', $categoryId);
+        $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
         $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        echo json_encode($products);
+        echo json_encode([
+            'products' => $products,
+            'pagination' => [
+                'total' => $totalProducts,
+                'limit' => $limit,
+                'page' => $page,
+                'pages' => ceil($totalProducts / $limit)
+            ]
+        ]);
     } catch (Exception $e) {
         logError("Error al obtener productos: " . $e->getMessage());
         http_response_code(500);
@@ -133,15 +180,29 @@ function getProductsByCategory($pdo, $categoryId)
     }
 }
 
-function getProductsByMaxPrice($pdo, $maxPrice)
+function getProductsByMaxPrice($pdo, $maxPrice, $limit, $offset, $page, $totalProducts)
 {
     try {
-        $query = "SELECT * FROM productos WHERE precio <= :maxPrice AND estado = 1";
+        $query = "SELECT * 
+                    FROM productos 
+                    WHERE precio <= :maxPrice AND estado = 1
+                    ORDER BY stock DESC
+                    LIMIT :limit OFFSET :offset";
         $stmt = $pdo->prepare($query);
         $stmt->bindParam(':maxPrice', $maxPrice);
+        $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
         $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        echo json_encode($products);
+        echo json_encode([
+            'products' => $products,
+            'pagination' => [
+                'total' => $totalProducts,
+                'limit' => $limit,
+                'page' => $page,
+                'pages' => ceil($totalProducts / $limit)
+            ]
+        ]);
     } catch (Exception $e) {
         logError("Error al obtener productos: " . $e->getMessage());
         http_response_code(500);
@@ -149,16 +210,31 @@ function getProductsByMaxPrice($pdo, $maxPrice)
     }
 }
 
-function getProductsBySearch($pdo, $search)
+function getProductsBySearch($pdo, $search, $limit, $offset, $page, $totalProducts)
 {
     try {
         $searchTerm = "%" . $search . "%";
-        $query = "SELECT * FROM productos WHERE nombre LIKE :search OR descripcion LIKE :search AND estado = 1";
+        $query = "SELECT * 
+                    FROM productos 
+                    WHERE (nombre LIKE :search OR descripcion LIKE :search) AND (estado = 1)
+                    ORDER BY stock DESC
+                    LIMIT :limit OFFSET :offset
+                    ";
         $stmt = $pdo->prepare($query);
         $stmt->bindParam(':search', $searchTerm);
+        $stmt->bindParam(':limit', $limit, PDO::PARAM_INT);
+        $stmt->bindParam(':offset', $offset, PDO::PARAM_INT);
         $stmt->execute();
         $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        echo json_encode($products);
+        echo json_encode([
+            'products' => $products,
+            'pagination' => [
+                'total' => $totalProducts,
+                'limit' => $limit,
+                'page' => $page,
+                'pages' => ceil($totalProducts / $limit)
+            ]
+        ]);
     } catch (Exception $e) {
         logError("Error al obtener productos: " . $e->getMessage());
         http_response_code(500);
