@@ -44,8 +44,10 @@ function handleGetRequest($pdo)
 {
     if (isset($_GET['id']) && !empty($_GET['id'])) {
         getProductById($pdo, intval($_GET['id']));
+        exit;
     } elseif (isset($_GET['name']) && !empty($_GET['name'])) {
         getProductsByName($pdo, $_GET['name']);
+        exit;
     }
 
     $limit = isset($_GET['limit']) ? intval($_GET['limit']) : 10;
