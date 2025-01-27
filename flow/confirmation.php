@@ -17,7 +17,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $status = $paymentService->getTransactionStatus($token);
         $result = $paymentService->processConfirmation($status);
 
-        header('Content-Type: application/json');
         echo json_encode($result);
         
     } catch (Exception $e) {

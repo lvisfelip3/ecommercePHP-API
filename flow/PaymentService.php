@@ -23,7 +23,7 @@ class PaymentService {
             'secretKey' => SECRET_KEY,
             'apiUrl' => FLOW_API_URL,
             'confirmationUrl' => SITE_API_URL . "flow/confirmation.php",
-            'returnUrl' => BASE_URL . "pedidos/confirmed/"
+            'returnUrl' => BASE_URL . "pedidos/checkout/"
         ];
     }
 
@@ -125,7 +125,7 @@ class PaymentService {
             $signature = hash_hmac('sha256', $toSign, $this->flowConfig['secretKey']);
             
             // Construir URL con los parámetros
-            $url = $this->flowConfig['apiUrl'] . 'payment/getStatus';
+            $url = $this->flowConfig['apiUrl'] . 'payment/getStatusExtended';
             $params["s"] = $signature;
             $url .= "?" . http_build_query($params);
             
@@ -163,9 +163,18 @@ class PaymentService {
     }
 
 
-   public function processConfirmation($statusData) {
+    public function processConfirmation($statusData) {
         try {
-
+            $this->pdo->beginTransaction();
+            if (isset($statusData['lastError']) && !empty($statusData['lastError']['code'])) {
+                throw new Exception(
+                    json_encode([
+                        'code' => $statusData['lastError']['code'],
+                        'message' => $statusData['lastError']['message'],
+                        'mediaCode' => $statusData['lastError']['medioCode']
+                    ])
+                );
+            }
             // Verificar el estado
             switch ($statusData['status']) {
                 case 1:
@@ -182,16 +191,6 @@ class PaymentService {
                 default:
                     throw new Exception("Estado de pago desconocido");
             }
-
-            if (isset($statusData['lastError'])) {
-                throw new Exception(
-                    json_encode([
-                        'code' => $statusData['lastError']['code'],
-                        'message' => $statusData['lastError']['message'],
-                        'mediaCode' => $statusData['lastError']['medioCode']
-                    ])
-                );
-            }
             
             // Obtener el commerceOrder desde los datos
             $saleRef = $statusData['commerceOrder'];
@@ -200,8 +199,6 @@ class PaymentService {
             if (!$orderData) {
                 throw new Exception("Datos de la orden no encontrados para ref: " . $saleRef);
             }
-            
-            $this->pdo->beginTransaction();
             
             // Verificar si la orden ya existe
             if ($this->orderExists($saleRef)) {
@@ -213,7 +210,7 @@ class PaymentService {
             }
             
             $clientId = $this->checkClient($orderData);
-
+            
             $direccion_id = $orderData['direccion_id'] != 0 && isset($orderData['direccion_id']) ? $orderData['direccion_id'] : null;
 
             $addressId = $this->createAddress($clientId, $orderData, $direccion_id);
@@ -221,7 +218,14 @@ class PaymentService {
             
             $saleId = $this->createSale($clientId, $addressId, $totalAmount, $saleRef);
             $this->addProductsToSale($saleId, $orderData['products']);
-            $this->createPayment($saleId, $totalAmount);
+
+            $submethod = $statusData['paymentData']['media'] ?? null;
+            $payment_type = $statusData['paymentData']['mediaType'] ?? null;
+            $last4numbers = $statusData['paymentData']['cardLast4Numbers'] ?? null;
+            $payed = $statusData['paymentData']['amount'] ?? null;
+
+            $this->createPayment($saleId, $totalAmount, $submethod, $payment_type, $last4numbers, $payed);
+
             $this->createShipping($saleId);
 
             $this->cleanupPendingOrder($saleRef);
@@ -229,10 +233,12 @@ class PaymentService {
             $this->pdo->commit();
             return [
                 'success' => true,
+                'status' => $statusData['status'],
                 'message' => 'Pago procesado exitosamente',
                 'saleId' => $saleId
             ];
         } catch (Exception $e) {
+            error_log($e->getMessage());
             $this->pdo->rollBack();
             $errorMessage = json_decode($e->getMessage(), true);
             
@@ -298,7 +304,7 @@ class PaymentService {
     }
 
     private function makeFlowApiCall($url, $params) {
-         $ch = curl_init();
+        $ch = curl_init();
     
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
@@ -380,10 +386,20 @@ class PaymentService {
         if ($client) {
             if($client['usuario_id'] == null && !empty($data['usuario_id'])) {
                 $this->addUserIdToClient($data);
+            } else {
+                $this->updateEmail($client['id'], $data['email']);
             }
             return $client['id'];
         }
         return $this->createClient($data);
+    }
+
+    private function updateEmail($client_id, $email) {
+        $query = "UPDATE clientes SET email = :email WHERE id = :client_id";
+        $stmt = $this->pdo->prepare($query);
+        $stmt->bindParam(':client_id', $client_id);
+        $stmt->bindParam(':email', $email);
+        $stmt->execute();
     }
 
     private function createClient($data)
@@ -404,10 +420,11 @@ class PaymentService {
     }
     
     private function addUserIdToClient($data) {
-        $query = "UPDATE clientes SET usuario_id = :usuario_id WHERE rut = :rut";
+        $query = "UPDATE clientes SET usuario_id = :usuario_id, email = :email WHERE rut = :rut";
         $stmt = $this->pdo->prepare($query);
         $stmt->bindParam(':rut', $data['rut']);
         $stmt->bindParam(':usuario_id', $data['usuario_id']);
+        $stmt->bindParam(':email', $data['email']);
         $stmt->execute();
     }
     
@@ -492,18 +509,22 @@ class PaymentService {
         return $totalAmount;
     }
     
-    private function createPayment($saleId, $totalAmount)
+    private function createPayment($saleId, $totalAmount, $submethod, $payment_type, $last4numbers, $payed)
     {
-        $query="INSERT INTO pagos (venta_id, monto, metodo_pago, referencia, estado)
-                VALUES (:venta_id, :monto, :metodo_pago, :referencia, 1)";
+        $query="INSERT INTO pagos (venta_id, monto, metodo_pago, submetodo_pago, referencia, estado, tipo_pago, tarjeta_ultimos_numeros, debio_pagar)
+                VALUES (:venta_id, :monto, :metodo_pago, :submetod, :referencia, 1, :payment_type, :last4numbers, :payed)";
         $stmt = $this->pdo->prepare($query);
         $reference = uniqid("PAY_");
     
         $stmt->execute([
             ':venta_id' => $saleId,
-            ':monto' => $totalAmount,
+            ':monto' => $payed,
             ':metodo_pago' => 'Flow',
             ':referencia' => $reference,
+            ':submetod' => $submethod,
+            ':payment_type' => $payment_type,
+            ':last4numbers' => $last4numbers,
+            ':payed' => $totalAmount
         ]);
     
         return $this->pdo->lastInsertId();
@@ -522,7 +543,9 @@ class PaymentService {
         $stmt = $this->pdo->prepare($query);
         $stmt->execute([':sale_ref' => $saleRef]);
         $result = $stmt->fetch(PDO::FETCH_ASSOC);
-        return $result ? json_decode($result['order_data'], true) : null;
+
+        $orderData = json_decode($result['order_data'], true);
+        return $orderData;
     }
 
     private function cleanupPendingOrder($saleRef) {
@@ -533,33 +556,48 @@ class PaymentService {
     
     public function handleError($statusData) {
         try {
+            
             switch ($statusData['status']) {
                 case 1:
-                    throw new Exception("Pago pendiente");
+                    return [
+                        'success' => false,
+                        'status' => 1,
+                        'message' => 'Pago pendiente'
+                    ];
+                    break;
                 case 3:
-                    throw new Exception("Pago rechazado");
+                    return [
+                        'success' => false,
+                        'status' => 3,
+                        'message' => 'Pago rechazado'
+                    ];
+                    break;
                 case 4:
-                    throw new Exception("Pago anulado");
+                    return [
+                        'success' => false,
+                        'status' => 4,
+                        'message' => 'Pago cancelado'
+                    ];
+                    break;
                 case 5:
-                    throw new Exception("Pago revertido");
+                    return [
+                        'success' => false,
+                        'status' => 5,
+                        'message' => 'Pago revertido'
+                    ];
+                    break;
                 case 2:
-                    return json_encode([
-                        'code' => $statusData['status'],
+                    return [
+                        'success' => true,
+                        'status' => 2,
                         'message' => 'Pago exitoso'
-                    ]);
+                    ];
                     break;
                 default:
-                    throw new Exception("Estado de pago desconocido");
-            }
-
-            if (isset($statusData['lastError'])) {
-                throw new Exception(
-                    json_encode([
-                        'code' => $statusData['lastError']['code'],
-                        'message' => $statusData['lastError']['message'],
-                        'mediaCode' => $statusData['lastError']['medioCode']
-                    ])
-                );
+                    return [
+                        'success' => false,
+                        'message' => 'Estado de pago desconocido'
+                    ];
             }
         } catch (Exception $e) {
             $errorMessage = json_decode($e->getMessage(), true);

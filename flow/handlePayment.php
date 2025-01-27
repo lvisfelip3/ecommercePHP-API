@@ -3,7 +3,6 @@ require_once 'PaymentService.php';
 require_once '../vendor/autoload.php';
 require '../config.php';
 require '../cors.php';
-header('Content-Type: application/json');
 
 $paymentService = new PaymentService($pdo);
 
