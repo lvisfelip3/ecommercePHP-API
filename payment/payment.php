@@ -48,8 +48,10 @@ function getPayments($pdo)
             v.id AS venta_id,
             CONCAT(c.nombre, ' ', c.apellido) AS cliente_nombre,
             c.rut AS cliente_rut,
+            c.email AS cliente_email,
             p.monto as monto,
             p.metodo_pago as metodo_pago,
+            p.tipo_pago,
             v.referencia AS venta_referencia,
             p.referencia AS referencia,
             p.estado AS estado_pago,
@@ -72,11 +74,13 @@ function getPayments($pdo)
                 'date' => $pay['fecha'],
                 'client' => [
                     'nombre' => $pay['cliente_nombre'],
-                    'rut' => $pay['cliente_rut']
+                    'rut' => $pay['cliente_rut'],
+                    'email' => $pay['cliente_email']
                 ],
                 'venta_referencia' => $pay['venta_referencia'],
                 'amount' => $pay['monto'],
                 'method' => $pay['metodo_pago'],
+                'submethod' => $pay['tipo_pago'],
                 'reference' => $pay['referencia'],
                 'sale' => $pay['venta_id']
             ];
@@ -99,9 +103,11 @@ function getPaymentsByStatus($pdo, $status)
             v.id AS venta_id,
             CONCAT(c.nombre, ' ', c.apellido) AS cliente_nombre,
             c.rut AS cliente_rut,
+            c.email AS cliente_email,
             p.monto as monto,
             v.referencia AS venta_referencia,
             p.metodo_pago as metodo_pago,
+            p.tipo_pago,
             p.referencia AS referencia,
             p.estado AS estado_pago,
             p.creado_en AS fecha
@@ -126,11 +132,13 @@ function getPaymentsByStatus($pdo, $status)
                 'date' => $pay['fecha'],
                 'client' => [
                     'nombre' => $pay['cliente_nombre'],
-                    'rut' => $pay['cliente_rut']
+                    'rut' => $pay['cliente_rut'],
+                    'email' => $pay['cliente_email']
                 ],
                 'venta_referencia' => $pay['venta_referencia'],
                 'amount' => $pay['monto'],
                 'method' => $pay['metodo_pago'],
+                'submethod' => $pay['tipo_pago'],
                 'reference' => $pay['referencia'],
                 'sale' => $pay['venta_id']
             ];

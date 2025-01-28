@@ -47,6 +47,7 @@ function getShipping($pdo)
             v.id AS venta_id,
             CONCAT(c.nombre, ' ', c.apellido) AS cliente_nombre,
             c.rut AS cliente_rut,
+            c.email AS cliente_email,
             d.direccion AS direccion,
             d.depto AS depto,
             comunas.nombre AS comuna,
@@ -75,7 +76,8 @@ function getShipping($pdo)
                 'date' => $venta['fecha'],
                 'client' => [
                     'nombre' => $venta['cliente_nombre'],
-                    'rut' => $venta['cliente_rut']
+                    'rut' => $venta['cliente_rut'],
+                    'email' => $venta['cliente_email']
                 ],
                 'reference' => $venta['referencia'],
                 'address' => [
@@ -103,6 +105,7 @@ function getShippingByStatus($pdo, $status)
             v.id AS venta_id,
             CONCAT(c.nombre, ' ', c.apellido) AS cliente_nombre,
             c.rut AS cliente_rut,
+            c.email AS cliente_email,
             d.direccion AS direccion,
             d.depto AS depto,
             comunas.nombre AS comuna,
@@ -134,7 +137,8 @@ function getShippingByStatus($pdo, $status)
                 'date' => $venta['fecha'],
                 'client' => [
                     'nombre' => $venta['cliente_nombre'],
-                    'rut' => $venta['cliente_rut']
+                    'rut' => $venta['cliente_rut'],
+                    'email' => $venta['cliente_email']
                 ],
                 'reference' => $venta['referencia'],
                 'address' => [
