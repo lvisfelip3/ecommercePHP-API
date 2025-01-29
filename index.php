@@ -48,6 +48,9 @@ function handleGetRequest($pdo)
     } elseif (isset($_GET['name']) && !empty($_GET['name'])) {
         getProductsByName($pdo, $_GET['name']);
         exit;
+    } elseif (isset($_GET['action']) && $_GET['action'] === 'maintainer') {
+        getProductsAdmin($pdo);
+        exit;
     }
 
     $limit = isset($_GET['limit']) ? intval($_GET['limit']) : 10;
@@ -115,6 +118,21 @@ function getProducts($pdo, $limit, $offset, $page, $totalProducts)
                 'pages' => ceil($totalProducts / $limit)
             ]
         ]);
+    } catch (Exception $e) {
+        logError("Error al obtener productos: " . $e->getMessage());
+        http_response_code(500);
+        echo json_encode(['message' => 'Error interno']);
+    }
+}
+
+function getProductsAdmin($pdo)
+{
+    try {
+        $query = "SELECT * FROM productos WHERE estado = 1 ORDER BY stock DESC";
+        $stmt = $pdo->prepare($query);
+        $stmt->execute();
+        $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        echo json_encode($products);
     } catch (Exception $e) {
         logError("Error al obtener productos: " . $e->getMessage());
         http_response_code(500);
