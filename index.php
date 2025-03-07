@@ -8,6 +8,11 @@ $method = $_SERVER['REQUEST_METHOD'];
 $request_uri = explode('?', $_SERVER['REQUEST_URI'], 2);
 $request_path = explode('/', trim($request_uri[0], '/'));
 
+use Dotenv\Dotenv as Dotenv;
+
+$dotenv = Dotenv::createImmutable(__DIR__. '/');
+$dotenv->load();
+
 switch ($method) {
 
     case 'GET':
@@ -16,18 +21,8 @@ switch ($method) {
 
     case 'POST':
         $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
+        if ($auth && $auth->rol == 1) {
             handlePostRequest($pdo);
-        } else {
-            http_response_code(403);
-            echo json_encode(['message' => 'No autorizado']);
-        }
-        break;
-
-    case 'DELETE':
-        $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
-            handleDeleteRequest($pdo);
         } else {
             http_response_code(403);
             echo json_encode(['message' => 'No autorizado']);
@@ -42,10 +37,10 @@ switch ($method) {
 
 function handleGetRequest($pdo)
 {
-    if (isset($_GET['id']) && !empty($_GET['id'])) {
+    if (isset($_GET['action']) && $_GET['action'] === 'getById') {
         getProductById($pdo, intval($_GET['id']));
         exit;
-    } elseif (isset($_GET['name']) && !empty($_GET['name'])) {
+    } elseif (isset($_GET['action']) && $_GET['action'] === 'getByName') {
         getProductsByName($pdo, $_GET['name']);
         exit;
     } elseif (isset($_GET['action']) && $_GET['action'] === 'maintainer') {
@@ -62,32 +57,31 @@ function handleGetRequest($pdo)
     $offset = ($page - 1) * $limit;
     $totalProducts = getTotalProducts($pdo);
 
-    if (isset($_GET['search']) && !empty($_GET['search'])) {
+    if (isset($_GET['action']) && $_GET['action'] === 'getBySearch') {
         getProductsBySearch($pdo, $_GET['search'], $limit, $offset, $page, $totalProducts);
 
-    } elseif (isset($_GET['category_id']) && !empty($_GET['category_id'])) {
+    } elseif (isset($_GET['action']) && $_GET['action'] === 'getByCategory') {
         getProductsByCategory($pdo, intval($_GET['category_id']), $limit, $offset, $page, $totalProducts);
 
-    } elseif (isset($_GET['maxPrice']) && !empty($_GET['maxPrice'])) {
+    } elseif (isset($_GET['action']) && $_GET['action'] === 'getByMaxPrice') {
         getProductsByMaxPrice($pdo, intval($_GET['maxPrice']), $limit, $offset, $page, $totalProducts);
 
-    } else {
+    } elseif (isset($_GET['action']) && $_GET['action'] === 'getAll') {
         getProducts($pdo, $limit, $offset, $page, $totalProducts);
     }
 }
 
 function handlePostRequest($pdo)
 {
-    if (isset($_POST['id'])) {
-        updateProduct($pdo);
-    } else {
-        addProduct($pdo);
-    }
-}
+    $data = json_decode(file_get_contents("php://input"), true);
 
-function handlePutRequest($pdo)
-{
-    updateProduct($pdo);
+    if (isset($_GET['action']) && $_GET['action'] === 'update') {
+        updateProduct($pdo, $data);
+    } elseif (isset($_GET['action']) && $_GET['action'] === 'create') {
+        addProduct($pdo);
+    } elseif (isset($_GET['action']) && $_GET['action'] === 'delete') {
+        deleteProduct($pdo, $_GET['id']);
+    }
 }
 
 function handleDeleteRequest($pdo)
@@ -128,7 +122,11 @@ function getProducts($pdo, $limit, $offset, $page, $totalProducts)
 function getProductsAdmin($pdo)
 {
     try {
-        $query = "SELECT * FROM productos WHERE estado = 1 ORDER BY stock DESC";
+        $query = "SELECT p.*, c.nombre as categoria
+                FROM productos p
+                INNER JOIN categorias c ON p.categoria_id = c.id
+                WHERE p.estado = 1 
+                ORDER BY p.stock DESC";
         $stmt = $pdo->prepare($query);
         $stmt->execute();
         $products = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -143,7 +141,14 @@ function getProductsAdmin($pdo)
 function getProductsByName($pdo, $name)
 {
     try {
-        $query = "SELECT * FROM productos WHERE slug = :name AND estado = 1";
+        $query = "
+        SELECT p.*,
+        ROUND(AVG(pr.rating), 1) as rating,
+        COUNT(pr.rating) as total_ratings
+        FROM productos p
+        LEFT JOIN producto_ratings pr ON pr.producto_id = p.id
+        WHERE p.slug = :name AND p.estado = 1
+        ";
         $stmt = $pdo->prepare($query);
         $stmt->bindParam(':name', $name);
         $stmt->execute();
@@ -287,12 +292,21 @@ function getProductById($pdo, $id)
 function addProduct($pdo)
 {
     try {
-        $nombre = isset($_POST['nombre']) ? $_POST['nombre'] : '';
-        $descripcion = isset($_POST['descripcion']) ? $_POST['descripcion'] : '';
-        $precio = isset($_POST['precio']) ? $_POST['precio'] : 0;
-        $stock = isset($_POST['stock']) ? $_POST['stock'] : 0;
-        $categoria = isset($_POST['categoria_id']) ? $_POST['categoria_id'] : '';
+        $post = json_decode($_POST['product'], true);
+
+        $nombre = $post['nombre'] ?? '';
+        $descripcion = $post['descripcion'] ?? '';
+        $precio = $post['precio'] ?? 0;
+        $stock = $post['stock'] ?? 0;
+        $categoria = $post['categoria_id'] ?? 0;
+        $sku = $post['sku'] ?? '';
         $slug = generateSlug($nombre);
+
+        $categoryNameQuery = "SELECT nombre FROM categorias WHERE id = :categoria";
+        $categoryNameStmt = $pdo->prepare($categoryNameQuery);
+        $categoryNameStmt->bindParam(':categoria', $categoria);
+        $categoryNameStmt->execute();
+        $categoryName = $categoryNameStmt->fetchColumn();
 
         if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] == 0) {
             $imagen = $_FILES['imagen'];
@@ -300,9 +314,9 @@ function addProduct($pdo)
             $target_file = $target_dir . basename($imagen["name"]);
 
             if (move_uploaded_file($imagen["tmp_name"], $target_file)) {
-                $imagenURL = "https://camarasdeseguridadfacil.cl/api/" . $target_file;
+                $imagenURL = $_ENV['SITE_API_URL'] . $target_file;
 
-                $query = "INSERT INTO productos (nombre, descripcion, precio, stock, categoria_id, imagen, slug) VALUES (:nombre, :descripcion, :precio, :stock, :categoria, :imagen, :slug)";
+                $query = "INSERT INTO productos (nombre, descripcion, precio, stock, categoria_id, imagen, slug, sku) VALUES (:nombre, :descripcion, :precio, :stock, :categoria, :imagen, :slug, :sku)";
                 $stmt = $pdo->prepare($query);
                 $stmt->bindParam(':nombre', $nombre);
                 $stmt->bindParam(':descripcion', $descripcion);
@@ -311,94 +325,155 @@ function addProduct($pdo)
                 $stmt->bindParam(':categoria', $categoria);
                 $stmt->bindParam(':imagen', $imagenURL);
                 $stmt->bindParam(':slug', $slug);
+                $stmt->bindParam(':sku', $sku);
                 $stmt->execute();
 
                 http_response_code(201);
-                echo json_encode(['message' => 'Producto creado1']);
+                echo json_encode([
+                    'status' => true,
+                    'message' => 'Producto creado',
+                    'data' => [
+                        'id' => $pdo->lastInsertId(),
+                        'nombre' => $nombre,
+                        'descripcion' => $descripcion,
+                        'precio' => $precio,
+                        'stock' => $stock,
+                        'categoria_id' => intval($categoria),
+                        'categoria' => $categoryName,
+                        'imagen' => $imagenURL,
+                        'sku' => $sku
+                    ]
+                ]);
             } else {
                 http_response_code(500);
-                echo json_encode(['message' => 'Error al subir la imagen']);
+                echo json_encode([
+                    'status' => false,
+                    'message' => 'Error al crear el producto. No se pudo subir la imagen.'
+                ]);
             }
         } else {
 
-            $query = "INSERT INTO productos (nombre, descripcion, precio, stock, categoria_id) VALUES (:nombre, :descripcion, :precio, :stock, :categoria)";
+            $query = "INSERT INTO productos (nombre, descripcion, precio, stock, categoria_id, sku, slug) VALUES (:nombre, :descripcion, :precio, :stock, :categoria, :sku, :slug)";
             $stmt = $pdo->prepare($query);
             $stmt->bindParam(':nombre', $nombre);
             $stmt->bindParam(':descripcion', $descripcion);
             $stmt->bindParam(':precio', $precio);
             $stmt->bindParam(':stock', $stock);
             $stmt->bindParam(':categoria', $categoria);
+            $stmt->bindParam(':sku', $sku);
+            $stmt->bindParam(':slug', $slug);
             if ($stmt->execute()) {
                 http_response_code(201);
                 echo json_encode([
-                    'message' => 'Producto creado2',
-                    'post' => $_POST
+                    'status' => true,
+                    'message' => 'Producto creado',
+                    'data' => [
+                        'id' => $pdo->lastInsertId(),
+                        'nombre' => $nombre,
+                        'descripcion' => $descripcion,
+                        'precio' => $precio,
+                        'stock' => $stock,
+                        'categoria_id' => intval($categoria),
+                        'categoria' => $categoryName,
+                        'imagen' => null,
+                        'sku' => $sku
+                    ]
                 ]);
             } else {
                 http_response_code(500);
-                echo json_encode(['message' => 'Error al crear el producto']);
+                echo json_encode([
+                    'status' => false,
+                    'message' => 'Error al crear el producto'
+                ]);
             }
         }
     } catch (Exception $e) {
         logError("Error al crear el producto: " . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['message' => 'Error interno']);
+        echo json_encode([
+            'status' => false,
+            'message' => 'Error interno'
+        ]);
     }
 }
 
 
-function updateProduct($pdo)
+function updateProduct($pdo, $data)
 {
     try {
-        $id = isset($_POST['id']) ? intval($_POST['id']) : null;
-        $nombre = isset($_POST['nombre']) ? $_POST['nombre'] : '';
-        $descripcion = isset($_POST['descripcion']) ? $_POST['descripcion'] : '';
-        $precio = isset($_POST['precio']) ? $_POST['precio'] : 0;
-        $stock = isset($_POST['stock']) ? $_POST['stock'] : 0;
-        $categoria = isset($_POST['categoria_id']) ? $_POST['categoria_id'] : '';
+        $id = $data['id'];
+        $nombre = $data['nombre'] ?? '';
+        $descripcion = $data['descripcion'] ?? '';
+        $precio = $data['precio'] ?? 0;
+        $stock = intval($data['stock']) ?? 0;
+        $categoria = intval($data['categoria_id']) ?? 0;
+        $sku = $data['sku'] ?? '';
 
-        // Inicializar la consulta de actualización sin imagen
-        $query = "UPDATE productos SET nombre = :nombre, descripcion = :descripcion, precio = :precio, stock = :stock, categoria_id = :categoria WHERE id = :id";
+        $query = "UPDATE productos SET nombre = :nombre, descripcion = :descripcion, precio = :precio, stock = :stock, categoria_id = :categoria, sku = :sku WHERE id = :id";
         $params = [
             ':nombre' => $nombre,
             ':descripcion' => $descripcion,
             ':precio' => $precio,
             ':stock' => $stock,
             ':categoria' => $categoria,
+            ':sku' => $sku,
             ':id' => $id
         ];
 
-        // Si hay una nueva imagen, actualizar la ruta en la base de datos
         if (isset($_FILES['imagen']) && $_FILES['imagen']['error'] == 0) {
             $imagen = $_FILES['imagen'];
             $target_dir = "uploads/";
             $target_file = $target_dir . basename($imagen["name"]);
 
             if (move_uploaded_file($imagen["tmp_name"], $target_file)) {
-                $imagenURL = "https://camarasdeseguridadfacil.cl/api/" . $target_file;
-                // Actualizar la consulta para incluir la imagen
+                $imagenURL = $_ENV['SITE_API_URL'] . $target_file;
                 $query = "UPDATE productos SET nombre = :nombre, descripcion = :descripcion, precio = :precio, stock = :stock, categoria_id = :categoria, imagen = :imagen WHERE id = :id";
                 $params[':imagen'] = $imagenURL;
             } else {
                 http_response_code(500);
-                echo json_encode(['message' => 'Error al subir la imagen']);
+                echo json_encode([
+                    'status' => false,
+                    'message' => 'Error al subir la imagen'
+                ]);
                 return;
             }
         }
 
-        // Ejecutar la consulta
         $stmt = $pdo->prepare($query);
         if ($stmt->execute($params)) {
+            $categoryNameQuery = "SELECT nombre FROM categorias WHERE id = :categoria";
+            $categoryNameStmt = $pdo->prepare($categoryNameQuery);
+            $categoryNameStmt->bindParam(':categoria', $categoria);
+            $categoryNameStmt->execute();
+            $categoryName = $categoryNameStmt->fetchColumn();
             http_response_code(200);
-            echo json_encode(['message' => 'Producto actualizado']);
+            echo json_encode([
+                'status' => true,
+                'message' => 'Producto actualizado',
+                'data' => [
+                    'id' => $id,
+                    'nombre' => $nombre,
+                    'descripcion' => $descripcion,
+                    'precio' => $precio,
+                    'stock' => $stock,
+                    'categoria_id' => intval($categoria),
+                    'categoria' => $categoryName,
+                    'imagen' =>  isset($imagenURL) ? $imagenURL : $data['imagen'],
+                    'sku' => $sku
+                ]
+            ]);
         } else {
             http_response_code(500);
-            echo json_encode(['message' => 'Error al actualizar el producto']);
+            echo json_encode([
+                'status' => false,
+                'message' => 'Error al actualizar el producto']);
         }
     } catch (Exception $e) {
         logError("Error al actualizar producto: " . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['message' => 'Error interno']);
+        echo json_encode([
+            'status' => false,
+            'message' => 'Error interno']);
     }
 }
 
