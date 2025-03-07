@@ -14,7 +14,7 @@ switch ($method) {
 
     case 'POST':
         $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
+        if ($auth && $auth->rol == 1) {
             updatePayment($pdo, intval($_GET['id']), intval($_GET['status']));
         } else {
             http_response_code(403);

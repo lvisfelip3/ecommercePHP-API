@@ -14,7 +14,7 @@ switch ($method) {
 
     case 'POST':
         $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
+        if ($auth && $auth->rol == 1) {
             handlePostRequest($pdo);
         } else {
             http_response_code(403);
@@ -24,7 +24,7 @@ switch ($method) {
 
     case 'PUT':
         $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
+        if ($auth && $auth->rol == 1) {
             handlePutRequest($pdo);
         } else {
             http_response_code(403);
@@ -34,7 +34,7 @@ switch ($method) {
 
     case 'DELETE':
         $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
+        if ($auth && $auth->rol == 1) {
             handleDeleteRequest($pdo);
         } else {
             http_response_code(403);
@@ -128,7 +128,15 @@ function addCategory($pdo)
             $stmt->bindParam(':descripcion', $descripcion);
             if ($stmt->execute()) {
                 http_response_code(201);
-                echo json_encode(['message' => 'Categoría creada']);
+                echo json_encode([
+                    'status' => true,
+                    'message' => 'Categoría creada',
+                    'data' => [
+                        'id' => $pdo->lastInsertId(),
+                        'nombre' => $nombre,
+                        'descripcion' => $descripcion
+                    ]
+                ]);
             } else {
                 http_response_code(500);
                 echo json_encode(['message' => 'Error al crear la categoría']);

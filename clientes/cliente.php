@@ -18,7 +18,7 @@ switch ($method) {
 
     case 'PUT':
         $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
+        if ($auth && $auth->rol == 1) {
             handlePutRequest($pdo);
         } else {
             http_response_code(403);
@@ -28,7 +28,7 @@ switch ($method) {
 
     case 'DELETE':
         $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
+        if ($auth && $auth->rol == 1) {
             handleDeleteRequest($pdo);
         } else {
             http_response_code(403);

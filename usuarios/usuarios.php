@@ -13,7 +13,7 @@ switch ($method) {
         break;
     case 'POST':
         $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
+        if ($auth && $auth->rol == 1) {
             handlePostRequest($pdo);
         } else {
             http_response_code(403);
@@ -22,7 +22,7 @@ switch ($method) {
         break;
     case 'PUT':
         $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
+        if ($auth && $auth->rol == 1) {
             handlePutRequest($pdo);
         } else {
             http_response_code(403);
@@ -31,7 +31,7 @@ switch ($method) {
         break;
     case 'DELETE':
         $auth = validateToken();
-        if ($auth && $auth->rol == 'admin') {
+        if ($auth && $auth->rol == 1) {
             handleDeleteRequest($pdo);
         } else {
             http_response_code(403);
@@ -132,19 +132,37 @@ function addUser($pdo)
 
             if ($stmt->execute()) {
                 http_response_code(201);
-                echo json_encode(['message' => 'Usuario creado con éxito']);
+                echo json_encode([
+                    'status' => true,
+                    'message' => 'Usuario creado con éxito',
+                    'user' => [
+                        'id' => $pdo->lastInsertId(),
+                        'nombre' => $nombre,
+                        'email' => $email,
+                        'rol' => $rol
+                    ]
+                ]);
             } else {
                 http_response_code(500);
-                echo json_encode(['message' => 'Error al crear el usuario']);
+                echo json_encode([
+                    'status' => false,
+                    'message' => 'Error al crear el usuario',
+                ]);
             }
         } else {
             http_response_code(400);
-            echo json_encode(['message' => 'Datos incompletos']);
+            echo json_encode([
+                'status' => false,
+                'message' => 'Datos incompletos'
+            ]);
         }
     } catch (Exception $e) {
         logError("Error al crear usuario: " . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['message' => 'Error interno']);
+        echo json_encode([
+            'status' => false,
+            'message' => 'Error interno'
+        ]);
     }
 }
 
@@ -182,22 +200,43 @@ function updateUser($pdo)
 
             if ($stmt->execute()) {
                 if ($stmt->rowCount() > 0) {
-                    echo json_encode(['message' => 'Usuario actualizado']);
+                    echo json_encode([
+                        'status' => true,
+                        'message' => 'Usuario actualizado',
+                        'user' => [
+                            'id' => $id,
+                            'nombre' => $nombre,
+                            'email' => $email,
+                            'rol' => $rol
+                        ]
+                    ]);
                 } else {
-                    echo json_encode(['message' => 'No se realizaron cambios en el usuario']);
+                    echo json_encode([
+                        'status' => false,
+                        'message' => 'No se realizaron cambios en el usuario'
+                    ]);
                 }
             } else {
                 http_response_code(500);
-                echo json_encode(['message' => 'Error al actualizar el usuario']);
+                echo json_encode([
+                    'status' => false,
+                    'message' => 'Error al actualizar el usuario'
+                ]);
             }
         } else {
             http_response_code(400);
-            echo json_encode(['message' => 'Datos incompletos']);
+            echo json_encode([
+                'status' => false,
+                'message' => 'Datos incompletos'
+            ]);
         }
     } catch (Exception $e) {
         logError("Error al actualizar usuario: " . $e->getMessage());
         http_response_code(500);
-        echo json_encode(['message' => 'Error interno']);
+        echo json_encode([
+            'status' => false,
+            'message' => 'Error interno'
+        ]);
     }
 }
 
